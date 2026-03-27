@@ -7,3 +7,5 @@ dependencies = []  # TODO
 [build-system]
 requires = ["setuptools"]
 build-backend = "setuptools.build_meta"
+[tool.setuptools.packages.find]
+include = ["treewidth_gate_cut*"]
