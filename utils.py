@@ -74,6 +74,22 @@ def create_multi_cx_qc(n_qubit: int, n_cx: int, seed: int = None) \
     return qc
 
 def DAG_to_interaction_graph(dag, qc: QuantumCircuit):
+    """Convert a DAG representation to a qubit interaction graph.
+
+    Builds a weighted undirected graph where nodes are qubit indices
+    and edge weights represent the number of 2-qubit gates between
+    those qubits.
+
+    Args:
+        dag: DAG representation of a quantum circuit (from Qiskit).
+        qc (QuantumCircuit): The corresponding quantum circuit
+            (used for qubit index lookup).
+
+    Returns:
+        tuple[networkx.Graph, dict]: A tuple of:
+            - Interaction graph with weighted edges.
+            - Mapping from edge ``(i, j)`` to list of DAG op nodes.
+    """
     G = nx.Graph()
     interaction_map = defaultdict(list)
 

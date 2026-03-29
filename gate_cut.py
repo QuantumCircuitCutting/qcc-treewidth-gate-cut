@@ -31,6 +31,18 @@ def cut_gate(qc: QuantumCircuit, control_idx: list, target_idx: list) -> Quantum
     return cut_qc
 
 def find_cut_points_from_interaction_graph(G):
+    """Find cut points from the interaction graph.
+
+    Returns an edge belonging to the shortest cycle that is incident
+    to a maximum-degree node. If no cycle exists, returns an edge
+    adjacent to the maximum-degree node.
+
+    Args:
+        G (networkx.Graph): 2-qubit gate interaction graph.
+
+    Returns:
+        tuple[int, int]: Edge (qubit_i, qubit_j) to cut.
+    """
     # 最大次数ノードのリスト
     max_deg = max(dict(G.degree()).values())
     nodes_with_max_deg = [n for n, d in G.degree() if d == max_deg]
@@ -62,6 +74,22 @@ def find_cut_points_from_interaction_graph(G):
     return target_edges_all[0]
 
 def compare_ncx_with_cutting(qc: QuantumCircuit, control_idx: int, target_idx: int, backend, coupling_map, target_basis):
+    """Compare ECR gate count before and after cutting a gate.
+
+    Transpiles both the original circuit and the cut circuit, then
+    prints and returns the ECR gate counts.
+
+    Args:
+        qc (QuantumCircuit): Original quantum circuit.
+        control_idx (int): Control qubit index of the gate to cut.
+        target_idx (int): Target qubit index of the gate to cut.
+        backend: Qiskit backend for transpilation.
+        coupling_map: Device coupling map.
+        target_basis: Target basis gates for transpilation.
+
+    Returns:
+        tuple[int, int]: (ecr_original, ecr_with_cutting).
+    """
     cut_qc = cut_gate(qc, control_idx=control_idx, target_idx=target_idx)
     print("------before transpile------")
     print(f"cx_original = {dict(qc.count_ops()).get('cx', 0)}, cx_with_cutting = {dict(cut_qc.count_ops()).get('cx', 0)}")

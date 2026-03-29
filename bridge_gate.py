@@ -5,6 +5,19 @@ from qiskit.circuit.instructionset import CircuitInstruction
 import networkx as nx
 
 def make_bridge_gate(ansatz, q1_idx, q2_idx):
+    """Create a bridge gate decomposition using 1 ancilla qubit.
+
+    Replaces the first CX/CZ gate between ``q1_idx`` and ``q2_idx``
+    with a 4-CNOT bridge decomposition through a single ancilla.
+
+    Args:
+        ansatz (QuantumCircuit): Input circuit.
+        q1_idx (int): First qubit index of the gate to bridge.
+        q2_idx (int): Second qubit index of the gate to bridge.
+
+    Returns:
+        QuantumCircuit: Circuit with the bridge gate applied.
+    """
     qc = copy.deepcopy(ansatz)
     reg = AncillaRegister(1)
     qc.add_register(reg)
@@ -55,6 +68,19 @@ def make_bridge_gate(ansatz, q1_idx, q2_idx):
     return qc
 
 def make_two_bridge_gate(ansatz, q1_idx, q2_idx):
+    """Create a bridge gate decomposition using 2 ancilla qubits.
+
+    Replaces the first CX/CZ gate between ``q1_idx`` and ``q2_idx``
+    with a 6-CNOT bridge decomposition through two ancillae.
+
+    Args:
+        ansatz (QuantumCircuit): Input circuit.
+        q1_idx (int): First qubit index of the gate to bridge.
+        q2_idx (int): Second qubit index of the gate to bridge.
+
+    Returns:
+        QuantumCircuit: Circuit with the two-ancilla bridge gate applied.
+    """
     qc = copy.deepcopy(ansatz)
     reg = AncillaRegister(1)
     reg2 = AncillaRegister(1)
@@ -138,6 +164,18 @@ def make_two_bridge_gate(ansatz, q1_idx, q2_idx):
     return qc
 
 def find_bridge_points_from_interaction_graph(G):
+    """Find candidate edges for bridge gate insertion from the interaction graph.
+
+    Returns edges in the shortest cycle that are incident to
+    maximum-degree nodes. If no cycle exists, returns all edges
+    adjacent to the maximum-degree node.
+
+    Args:
+        G (networkx.Graph): 2-qubit gate interaction graph.
+
+    Returns:
+        list[tuple[int, int]]: Candidate edges for bridge insertion.
+    """
     # 最大次数ノードのリスト
     max_deg = max(dict(G.degree()).values())
     print(f"max_deg = {max_deg}")

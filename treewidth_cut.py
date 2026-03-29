@@ -76,13 +76,16 @@ from qiskit.circuit import Measure
 Assignment = Dict[str, int]  # cut_id -> index
 
 
-@dataclass
-class DataClassSubQCParams:
-    """機能2 の出力型: サブ回路パラメータ."""
-    subqc_id: str
-    subcircuit_role: str       # 'time_left' / 'space_control' etc.
-    assignment: Assignment     # cut_id -> index mapping
-    qasm3: str                 # OpenQASM3 string
+try:
+    from SubQCParams import DataClassSubQCParams
+except ImportError:
+    @dataclass
+    class DataClassSubQCParams:
+        """機能2 の出力型: サブ回路パラメータ（フォールバック定義）."""
+        subqc_id: str
+        subcircuit_role: str       # 'time_left' / 'space_control' etc.
+        assignment: Assignment     # cut_id -> index mapping
+        qasm3: str                 # OpenQASM3 string
 
 
 @dataclass
@@ -936,13 +939,22 @@ def _build_backend_from_device_info(
     from qiskit.transpiler import CouplingMap
     n_qubit = device["n_qubit"]
     coupling_map = CouplingMap(device["coupling_map"])
+    # coupling_map のみ指定時、AerSimulator のデフォルト basis_gates に ccx 等の
+    # 3量子ビット以上のゲートが含まれ、transpile でエラーになるため明示する。
+    _basis_gates = ["ecr", "id", "rz", "sx", "x", "reset", "measure"]
     if use_simulator:
         from qiskit_aer import AerSimulator
-        return AerSimulator(coupling_map=coupling_map)
+        return AerSimulator(
+            coupling_map=coupling_map,
+            basis_gates=_basis_gates,
+        )
     else:
         from qiskit.providers.fake_provider import GenericBackendV2
-        return GenericBackendV2(num_qubits=n_qubit,
-                                coupling_map=device["coupling_map"])
+        return GenericBackendV2(
+            num_qubits=n_qubit,
+            coupling_map=device["coupling_map"],
+            basis_gates=_basis_gates,
+        )
 
 
 def _get_device_n_qubit(device: Dict[str, Any]) -> int:
@@ -1077,6 +1089,171 @@ def find_optimal_cuts_from_subqc_lst(
     return results
 
 
+# ──────────────────────────────────────────────
+# MyQuantumCircuit adapter
+# ──────────────────────────────────────────────
+
+def _device_obj_to_device_info(device_obj) -> Dict[str, Any]:
+    """
+    annealing_transpiler.device.Device オブジェクトを
+    内部の device_info dict 形式に変換する。
+    """
+    return {
+        "name": device_obj.name,
+        "n_qubit": device_obj.qubits,
+        "coupling_map": [list(e) for e in device_obj.connectivity],
+    }
+
+
+def find_optimal_cuts_from_myqc_lst(
+    myqc_lst,
+    device,
+    *,
+    shots: int = 1000,
+    use_simulator: bool = True,
+    max_cuts: int = 1,
+    M_candidates: int = 30,
+    allowed_gate_names: Tuple[str, ...] = _DEFAULT_ALLOWED,
+    gate_pick_policy: str = "first",
+    seed_transpiler: int = 42,
+    optimization_level: int = 1,
+    beam_width: int = 8,
+    H0: float = 1.0,
+    p_gate: float = 0.005,
+    sigma_shot: float = 1.0,
+    gamma2: float = 9.0,
+) -> List[SubCircuitCutResult]:
+    """
+    List[MyQuantumCircuit] と Device を入力として各サブ回路のカット解析を行う。
+
+    MyQuantumCircuit を patched_qasm3_for_qiskit() 経由で Qiskit QuantumCircuit に
+    変換してから find_optimal_cuts を実行する。
+
+    Args:
+        myqc_lst: MyQuantumCircuit のリスト（機能2 の split_all_circuit 出力）。
+        device: annealing_transpiler.device.Device オブジェクト、
+            またはそのリスト。Device.name / Device.qubits / Device.connectivity を使用。
+        shots: 実行ショット数（ブレークイーブン判定に使用）
+        use_simulator: True なら AerSimulator、False なら GenericBackendV2 を使用
+        max_cuts: カット数 (1 or 2)
+        H0: 理想期待値の絶対値 |⟨H⟩_ideal|（ブレークイーブン計算用）
+        p_gate: ECR ゲートあたりのエラー率
+        sigma_shot: 1 ショットあたりの統計的標準偏差
+        gamma2: QPD のショットオーバーヘッド係数 γ²
+        その他のキーワード引数は find_optimal_cuts と同じ。
+
+    Returns:
+        List[SubCircuitCutResult]: 各サブ回路のカット結果リスト（入力順）。
+    """
+    import math
+
+    # Device オブジェクト → device_info dict に変換
+    if isinstance(device, list):
+        device_info = [_device_obj_to_device_info(d) for d in device]
+    else:
+        device_info = [_device_obj_to_device_info(device)]
+
+    results: List[SubCircuitCutResult] = []
+
+    for i, myqc in enumerate(myqc_lst):
+        name = myqc.subqc_id if myqc.subqc_id else f"subcircuit_{i}"
+
+        # MyQuantumCircuit -> QASM3 文字列 -> Qiskit QuantumCircuit
+        qasm3_str = myqc.patched_qasm3_for_qiskit()
+        qc = load_circuit_from_qasm3_str(qasm3_str)
+
+        # デバイス選択 → バックエンド構築
+        dev = _select_device(device_info, qc.num_qubits)
+        backend = _build_backend_from_device_info(dev, use_simulator)
+
+        cut_result = find_optimal_cuts(
+            qc,
+            backend,
+            max_cuts=max_cuts,
+            M_candidates=M_candidates,
+            allowed_gate_names=allowed_gate_names,
+            gate_pick_policy=gate_pick_policy,
+            seed_transpiler=seed_transpiler,
+            optimization_level=optimization_level,
+            beam_width=beam_width,
+        )
+
+        # ブレークイーブン判定
+        m_star = compute_m_star(
+            cut_result.ecr_before,
+            cut_result.ecr_after,
+            H0=H0,
+            p_gate=p_gate,
+            sigma_shot=sigma_shot,
+            gamma2=gamma2,
+        )
+        cut_result.m_star = m_star
+        cut_result.should_cut = math.isfinite(m_star) and (shots >= m_star)
+
+        results.append(SubCircuitCutResult(
+            name=name,
+            nshot=shots,
+            qc=qc,
+            cut_result=cut_result,
+        ))
+
+    return results
+
+
+def expand_cut_results(
+    cut_results: List[SubCircuitCutResult],
+    expand_names: Optional[List[str]] = None,
+) -> List[DataClassSubQCParams]:
+    """
+    カット解析結果から DataClassSubQCParams のリストを生成する。
+
+    - 展開対象のサブ回路 → QPD 6ブランチに展開（6つの DataClassSubQCParams）
+    - それ以外のサブ回路 → そのまま1つの DataClassSubQCParams
+
+    Args:
+        cut_results: find_optimal_cuts_from_myqc_lst の返り値。
+        expand_names: QPD 展開するサブ回路名のリスト。
+            None の場合は should_cut=True かつ gate_indices がある全サブ回路を展開。
+            空リスト [] の場合はどのサブ回路も展開しない。
+
+    Returns:
+        List[DataClassSubQCParams]: 展開後の全回路リスト。
+            annealing_transpile にそのまま渡せる形式。
+    """
+    from qiskit import qasm3 as _qasm3
+
+    output: List[DataClassSubQCParams] = []
+
+    for r in cut_results:
+        # 展開するかどうかの判定
+        if expand_names is None:
+            do_expand = r.cut_result.should_cut and bool(r.cut_result.gate_indices)
+        else:
+            do_expand = r.name in expand_names and bool(r.cut_result.gate_indices)
+
+        if do_expand:
+            # QPD 6ブランチに展開
+            gate_idx = r.cut_result.gate_indices[0]
+            for k in range(1, 7):
+                branch_qc, _ = _generate_qpd_branch(r.qc, gate_idx, k)
+                output.append(DataClassSubQCParams(
+                    subqc_id=f"{r.name}_branch{k}",
+                    parent_circuit_id=r.name,
+                    subcircuit_role=f"qpd_branch_{k}",
+                    qasm3=_qasm3.dumps(branch_qc),
+                ))
+        else:
+            # カットなし → そのまま
+            output.append(DataClassSubQCParams(
+                subqc_id=r.name,
+                parent_circuit_id=r.name,
+                subcircuit_role="original",
+                qasm3=_qasm3.dumps(r.qc),
+            ))
+
+    return output
+
+
 def dist_to_counts(
     dist: Dict[str, float],
     shots: int,
@@ -1099,6 +1276,142 @@ def load_circuit_from_qasm3_str(qasm3_str: str) -> QuantumCircuit:
     """OpenQASM3 文字列から QuantumCircuit を生成する。"""
     from qiskit import qasm3
     return qasm3.loads(qasm3_str)
+
+
+# ──────────────────────────────────────────────
+# analyze_cuts / run_with_decisions
+# execute.py (quantum-circuit-cutting) から呼ばれる
+# ──────────────────────────────────────────────
+
+def analyze_cuts(
+    subcircuits,
+    device_info,
+    use_simulator: bool,
+    **options,
+):
+    """
+    各サブ回路に対してカット解析・ブレークイーブン判定を行う。
+    実行は行わず CutDecision のリストを返す。
+
+    execute_subcircuits() の前半（カット判定まで）を切り出した関数。
+
+    Args:
+        subcircuits: List[DataClassSubQCParams]
+        device_info: デバイス情報の dict またはリスト
+        use_simulator: True なら AerSimulator を使用
+        **options:
+            shots (int): ブレークイーブン判定に使用するショット数 (default 8192)
+            H0 (float): 理想期待値 (default 1.0)
+            p_gate (float): ECR ゲートあたりのエラー率 (default 0.005)
+            sigma_shot (float): 統計的標準偏差 (default 1.0)
+            gamma2 (float): QPD オーバーヘッド係数 (default 9.0)
+            max_cuts (int): カット数 (default 1)
+            seed_transpiler (int): transpile seed (default 42)
+            optimization_level (int): transpile 最適化レベル (default 1)
+
+    Returns:
+        List[CutDecision]
+    """
+    from quantum_circuit_cutting.execute import CutDecision
+
+    shots = options.get("shots", 8192)
+    H0 = options.get("H0", 1.0)
+    p_gate = options.get("p_gate", 0.005)
+    sigma_shot = options.get("sigma_shot", 1.0)
+    gamma2 = options.get("gamma2", 9.0)
+    max_cuts = options.get("max_cuts", 1)
+    seed_transpiler = options.get("seed_transpiler", 42)
+    optimization_level = options.get("optimization_level", 1)
+
+    decisions = []
+
+    for params in subcircuits:
+        qc = load_circuit_from_qasm3_str(params.qasm3)
+
+        device = _select_device(device_info, qc.num_qubits)
+        backend = _build_backend_from_device_info(device, use_simulator)
+
+        cut_result = find_optimal_cuts(
+            qc, backend,
+            max_cuts=max_cuts,
+            seed_transpiler=seed_transpiler,
+            optimization_level=optimization_level,
+        )
+
+        m_star = compute_m_star(
+            cut_result.ecr_before, cut_result.ecr_after,
+            H0=H0, p_gate=p_gate, sigma_shot=sigma_shot, gamma2=gamma2,
+        )
+
+        should_cut = (
+            math.isfinite(m_star)
+            and shots >= m_star
+            and cut_result.ecr_reduction > 0
+        )
+
+        gate_idx = cut_result.gate_indices[0] if should_cut and cut_result.gate_indices else None
+
+        decisions.append(CutDecision(
+            should_cut=should_cut,
+            gate_idx=gate_idx,
+            backend=backend,
+            seed_transpiler=seed_transpiler,
+            optimization_level=optimization_level,
+        ))
+
+    return decisions
+
+
+def run_with_decisions(
+    subcircuits,
+    cut_decisions,
+    shots: int,
+):
+    """
+    各サブ回路を CutDecision に従って実行し DataClassSubQCRes を返す。
+
+    execute_subcircuits() の後半（実行部分）を切り出した関数。
+
+    Step 2 (Annealing) を通った場合、params.qasm3 は transpile 済みに
+    更新されている。load_circuit_from_qasm3_str(params.qasm3) で
+    更新後の回路を復元して実行する。
+
+    Args:
+        subcircuits: List[DataClassSubQCParams]
+        cut_decisions: List[CutDecision] (analyze_cuts の出力)
+        shots: 実行ショット数
+
+    Returns:
+        List[DataClassSubQCRes]
+    """
+    results = []
+
+    for params, decision in zip(subcircuits, cut_decisions):
+        qc = load_circuit_from_qasm3_str(params.qasm3)
+
+        if decision.should_cut and decision.gate_idx is not None:
+            dist = execute_qpd(
+                qc, decision.gate_idx, decision.backend, shots,
+                seed_transpiler=decision.seed_transpiler,
+                optimization_level=decision.optimization_level,
+            )
+        else:
+            dist = run_and_get_distribution(
+                qc, decision.backend, shots,
+                seed_transpiler=decision.seed_transpiler,
+                optimization_level=decision.optimization_level,
+            )
+
+        counts = dist_to_counts(dist, shots)
+
+        results.append(DataClassSubQCRes(
+            subqc_id=params.subqc_id,
+            counts=counts,
+            assignment=params.assignment,
+            subcircuit_role=params.subcircuit_role,
+        ))
+
+    return results
 
 
 def execute_subcircuits(
