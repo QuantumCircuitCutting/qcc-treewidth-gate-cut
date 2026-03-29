@@ -77,7 +77,7 @@ Assignment = Dict[str, int]  # cut_id -> index
 
 
 try:
-    from SubQCParams import DataClassSubQCParams
+    from circuit_cutter.SubQCParams import DataClassSubQCParams
 except ImportError:
     @dataclass
     class DataClassSubQCParams:

@@ -2,7 +2,7 @@
 import pytest
 from qiskit import QuantumCircuit
 
-from gate_cut import cut_gate, find_cut_points_from_interaction_graph
+from treewidth_gate_cut.gate_cut import cut_gate, find_cut_points_from_interaction_graph
 import networkx as nx
 
 

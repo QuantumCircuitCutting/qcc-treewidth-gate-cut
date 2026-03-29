@@ -2,7 +2,7 @@
 import pytest
 from qiskit import QuantumCircuit
 
-from bridge_gate import (
+from treewidth_gate_cut.bridge_gate import (
     make_bridge_gate,
     make_two_bridge_gate,
     find_bridge_points_from_interaction_graph,

@@ -3,7 +3,7 @@ import math
 import pytest
 from qiskit import QuantumCircuit
 
-from treewidth_cut import (
+from treewidth_gate_cut.treewidth_cut import (
     QCGraph,
     build_edge_map,
     cut_gate_by_index,

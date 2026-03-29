@@ -2,7 +2,7 @@
 import pytest
 from qiskit import QuantumCircuit
 
-from make_ansatz import (
+from treewidth_gate_cut.make_ansatz import (
     make_ladder_ansatz,
     make_crossladder_ansatz,
     make_complete_ansatz,

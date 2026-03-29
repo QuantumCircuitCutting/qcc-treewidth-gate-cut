@@ -3,7 +3,7 @@ import pytest
 from qiskit import QuantumCircuit
 from qiskit.converters import circuit_to_dag
 
-from utils import create_multi_cx_qc, DAG_to_interaction_graph
+from treewidth_gate_cut.utils import create_multi_cx_qc, DAG_to_interaction_graph
 
 
 class TestCreateMultiCxQc:
