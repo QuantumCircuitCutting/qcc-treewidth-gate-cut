@@ -1,0 +1,33 @@
+[project]
+name = "qcc-treewidth-gate-cut"
+version = "0.1.0"
+description = "Treewidth-aware gate cut optimization for quantum circuits"
+requires-python = ">=3.10"
+license = {text = "CC0-1.0"}
+dependencies = [
+    "qiskit>=1.0",
+    "qiskit-aer>=0.13",
+    "numpy>=1.21",
+    "networkx>=2.6",
+    "qcc-circuit-cutter",
+    "quantum-circuit-cutting",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "jupyter",
+]
+ibm = [
+    "qiskit-ibm-runtime>=0.20",
+]
+
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["treewidth_gate_cut*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
