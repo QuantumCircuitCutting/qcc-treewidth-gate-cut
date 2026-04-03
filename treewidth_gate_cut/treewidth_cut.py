@@ -1,21 +1,23 @@
 """
 Treewidth-based circuit cut position selector
 =============================================
-Min-fill ヒューリスティックで量子回路のインタラクショングラフを解析し、
-カットすると最もハードウェアゲート数 (ECR) を削減できる 2-qubit ゲートを提案する。
-さらに QPD（Quasi-Probability Decomposition）による分布再構成もサポートする。
+Analyse the interaction graph of a quantum circuit using the min-fill
+heuristic and propose which 2-qubit gates to cut for the greatest
+reduction in hardware gate count (ECR).
+Also supports distribution reconstruction via QPD
+(Quasi-Probability Decomposition).
 
-Usage 1 — QuantumCircuit を直接渡す場合::
+Usage 1 — pass a QuantumCircuit directly::
 
-    from circuit_preprocesser.treewidth_cut import find_optimal_cuts
+    from treewidth_gate_cut.treewidth_cut import find_optimal_cuts
 
     result = find_optimal_cuts(qc, backend, max_cuts=1)
     print(result.cut_edges, result.ecr_reduction)
     qc_cut = result.apply(qc)
 
-Usage 2 — subcircuit_params / device_info を渡す場合::
+Usage 2 — pass subcircuit_params / device_info::
 
-    from circuit_preprocesser.treewidth_cut import find_optimal_cuts_from_subqc_lst
+    from treewidth_gate_cut.treewidth_cut import find_optimal_cuts_from_subqc_lst
 
     subcircuit_params = [
         {"name": "a",  "qasm": "data/circuit_1.qasm3"},
@@ -33,9 +35,9 @@ Usage 2 — subcircuit_params / device_info を渡す場合::
         print(r.name, r.cut_result.ecr_reduction,
               r.cut_result.should_cut, r.cut_result.m_star)
 
-Usage 3 — 統合 API（DataClassSubQCParams → DataClassSubQCRes）::
+Usage 3 — integrated API (DataClassSubQCParams -> DataClassSubQCRes)::
 
-    from circuit_preprocesser.treewidth_cut import (
+    from treewidth_gate_cut.treewidth_cut import (
         DataClassSubQCParams, execute_subcircuits,
     )
 
@@ -43,9 +45,9 @@ Usage 3 — 統合 API（DataClassSubQCParams → DataClassSubQCRes）::
     for r in results:
         print(r.subqc_id, r.counts, r.assignment)
 
-Usage 4 — QPD 実行と分布再構成::
+Usage 4 — QPD execution and distribution reconstruction::
 
-    from circuit_preprocesser.treewidth_cut import execute_qpd, run_and_get_distribution
+    from treewidth_gate_cut.treewidth_cut import execute_qpd, run_and_get_distribution
 
     dist_base = run_and_get_distribution(qc, backend, shots=10000)
     dist_qpd  = execute_qpd(qc, gate_idx=5, backend=backend, shots_total=30000)
@@ -81,7 +83,7 @@ try:
 except ImportError:
     @dataclass
     class DataClassSubQCParams:
-        """機能2 の出力型: サブ回路パラメータ（フォールバック定義）."""
+        """Feature 2 output type: subcircuit parameters (fallback definition)."""
         subqc_id: str
         subcircuit_role: str       # 'time_left' / 'space_control' etc.
         assignment: Assignment     # cut_id -> index mapping
@@ -90,7 +92,7 @@ except ImportError:
 
 @dataclass
 class DataClassSubQCRes:
-    """機能4 の出力型 → 機能5 の入力."""
+    """Feature 4 output type -> Feature 5 input."""
     subqc_id: str
     counts: Dict[str, int]     # e.g. {'00': 4096, '11': 4096}
     assignment: Assignment
@@ -99,16 +101,16 @@ class DataClassSubQCRes:
 
 @dataclass
 class CutResult:
-    """カット提案の結果."""
+    """Result of a cut proposal."""
     cut_edges: List[Tuple[int, int]]
     gate_indices: List[int]
     ecr_before: int
     ecr_after: int
     treewidth_upper: int
     candidate_edges: List[Tuple[int, int]]
-    # ブレークイーブン判定（subqc_lst 経由で実行した場合のみ設定される）
+    # Breakeven analysis (set only when called via subqc_lst)
     should_cut: Optional[bool] = None
-    m_star: Optional[float] = None  # ブレークイーブン shot 数
+    m_star: Optional[float] = None  # breakeven shot count
 
     @property
     def ecr_reduction(self) -> int:
@@ -123,7 +125,7 @@ class CutResult:
         return self.ecr_reduction / self.ecr_before
 
     def apply(self, qc: QuantumCircuit) -> QuantumCircuit:
-        """カット対象ゲートを削除した回路を返す."""
+        """Return a circuit with the cut target gates removed."""
         result = copy.deepcopy(qc)
         for idx in sorted(self.gate_indices, reverse=True):
             del result.data[idx]
@@ -132,7 +134,7 @@ class CutResult:
 
 @dataclass
 class SubCircuitCutResult:
-    """subqc_lst の1エントリに対するカット結果."""
+    """Cut result for one entry of subqc_lst."""
     name: str
     nshot: int
     qc: QuantumCircuit
@@ -144,7 +146,7 @@ class SubCircuitCutResult:
 # ──────────────────────────────────────────────
 
 class QCGraph:
-    """量子回路の 2-qubit ゲートインタラクショングラフ."""
+    """2-qubit gate interaction graph of a quantum circuit."""
 
     def __init__(self, qc: QuantumCircuit) -> None:
         """Build the interaction graph from a quantum circuit.
@@ -189,7 +191,7 @@ def build_edge_map(
     qc: QuantumCircuit,
     allowed_names: Tuple[str, ...] = _DEFAULT_ALLOWED,
 ) -> Tuple[Dict[Tuple[int, int], int], Dict[Tuple[int, int], List[int]]]:
-    """回路から (edge -> frequency) と (edge -> gate indices) を構築."""
+    """Build (edge -> frequency) and (edge -> gate indices) maps from a circuit."""
     w: Dict[Tuple[int, int], int] = defaultdict(int)
     edge_to_gate_indices: Dict[Tuple[int, int], List[int]] = defaultdict(list)
 
@@ -211,7 +213,7 @@ def cut_gate_by_index(
     gate_index: int,
     allowed_names: Tuple[str, ...] = _DEFAULT_ALLOWED,
 ) -> QuantumCircuit:
-    """指定インデックスの 2-qubit ゲートを削除した回路を返す."""
+    """Return a circuit with the 2-qubit gate at the given index removed."""
     if gate_index < 0 or gate_index >= len(qc.data):
         raise IndexError(f"gate_index out of range: {gate_index} (len={len(qc.data)})")
     ci = qc.data[gate_index]
@@ -231,12 +233,12 @@ def cut_gate_by_index(
 
 def min_fill_trace(G_in: nx.Graph):
     """
-    Min-fill 消去順序を計算し、各ステップの bag / fill-edge 情報を返す。
+    Compute the min-fill elimination order and return bag / fill-edge info per step.
 
     Returns:
-        order: 消去順序
-        steps: ステップ情報のリスト
-        tw_upper: treewidth の上界
+        order: elimination order
+        steps: list of step information dicts
+        tw_upper: upper bound on treewidth
     """
     G = G_in.copy()
     order, steps = [], []
@@ -296,10 +298,10 @@ def score_edges_from_trace(
     topk: int = 10,
 ) -> List[Tuple[Tuple[int, int], float]]:
     """
-    Min-fill trace からエッジスコアを計算し、上位 topk を返す。
+    Compute edge scores from the min-fill trace and return the top-k.
 
-    fill edge が発生しないグラフ（木構造など）でもフォールバックで
-    bag 内エッジにスコアを付ける。
+    Falls back to scoring bag-interior edges when no fill edges
+    are produced (e.g. tree-structured graphs).
     """
     def norm_edge(a, b):
         """Return the edge tuple with the smaller index first."""
@@ -322,7 +324,7 @@ def score_edges_from_trace(
                     inc = step_weight * (w.get(e, 1) if use_freq else 1.0)
                     score[e] = score.get(e, 0.0) + inc
 
-    # Fallback: fill edge がゼロの場合、bag 内エッジを弱くスコアリング
+    # Fallback: weakly score bag-interior edges when no fill edges exist
     if total_fill == 0 or len(score) == 0:
         for s in steps:
             v = s["v"]
@@ -355,7 +357,7 @@ def pick_gate_instance(
     v: int,
     policy: str = "first",
 ) -> Optional[int]:
-    """エッジに対応するゲートインデックスを選択ポリシーに従って返す."""
+    """Return the gate index for an edge according to the selection policy."""
     e = (min(u, v), max(u, v))
     lst = edge_to_gate_indices.get(e)
     if not lst:
@@ -379,7 +381,7 @@ def evaluate_cost(
     seed_transpiler: int = 42,
     optimization_level: int = 1,
 ) -> int:
-    """トランスパイル後の ECR ゲート数を返す."""
+    """Return the ECR gate count after transpilation."""
     tqc = transpile(
         qc,
         backend=backend,
@@ -403,7 +405,7 @@ def select_best_cut_K1(
     seed_transpiler: int = 42,
     optimization_level: int = 1,
 ) -> Optional[Tuple[int, Tuple[int, int], int]]:
-    """候補エッジを1つずつ試し、ECR最小のカットを返す."""
+    """Try each candidate edge and return the cut with minimal ECR count."""
     best = None  # (cost, (u,v), gate_index)
 
     for (u, v) in candidate_edges:
@@ -435,7 +437,7 @@ def select_best_cut_K2_beam(
     seed_transpiler: int = 42,
     optimization_level: int = 1,
 ) -> Optional[Tuple[int, Tuple[Tuple[int, int], int], Tuple[Tuple[int, int], int]]]:
-    """Beam search で 2 箇所カットの最適組み合わせを探す."""
+    """Use beam search to find the optimal 2-cut combination."""
     # Phase 1: single cuts -> top beam_width
     single_results = []
     for (u, v) in candidate_edges:
@@ -494,25 +496,26 @@ def find_optimal_cuts(
     beam_width: int = 8,
 ) -> CutResult:
     """
-    量子回路に対して最適なカット位置を提案する。
+    Propose optimal cut positions for a quantum circuit.
 
-    Min-fill ヒューリスティックでインタラクショングラフを解析し、
-    カット候補をスコアリングした後、実際にトランスパイルして
-    ECR ゲート数が最小になるカット位置を選択する。
+    Analyses the interaction graph with the min-fill heuristic, scores
+    cut candidates, then transpiles to select the cut position that
+    minimises the ECR gate count.
 
     Args:
-        qc: カット対象の量子回路
-        backend: Qiskit backend (e.g., FakeSherbrooke())
-        max_cuts: カット数 (1 or 2)
-        M_candidates: スコアリングで残す候補エッジ数
-        allowed_gate_names: カット対象とするゲート名
-        gate_pick_policy: 同一エッジ上の複数ゲートから選ぶポリシー ("first", "last", "middle")
-        seed_transpiler: トランスパイルのシード
-        optimization_level: トランスパイルの最適化レベル
-        beam_width: K=2 の場合の beam 幅
+        qc: Quantum circuit to cut.
+        backend: Qiskit backend (e.g., FakeSherbrooke()).
+        max_cuts: Number of cuts (1 or 2).
+        M_candidates: Number of candidate edges to keep after scoring.
+        allowed_gate_names: Gate names eligible for cutting.
+        gate_pick_policy: Policy for choosing among multiple gates on
+            the same edge ("first", "last", "middle").
+        seed_transpiler: Seed for transpilation.
+        optimization_level: Transpilation optimisation level.
+        beam_width: Beam width for K=2 search.
 
     Returns:
-        CutResult: カット結果
+        CutResult: The cut result.
     """
     if max_cuts not in (1, 2):
         raise ValueError("max_cuts must be 1 or 2")
@@ -592,27 +595,27 @@ def compute_m_star(
     gamma2: float = 9.0,
 ) -> float:
     """
-    QPD ブレークイーブン shot 数 M* を理論式から計算する。
+    Compute the QPD breakeven shot count M* from theoretical formulae.
 
-    QPD の MSE がベースラインの MSE を下回る条件:
-        MSE_baseline = σ²/M + b_base²
-        MSE_QPD      = γ² σ²/M + b_cut²
+    The condition for QPD MSE to be lower than baseline MSE:
+        MSE_baseline = sigma^2/M + b_base^2
+        MSE_QPD      = gamma^2 sigma^2/M + b_cut^2
 
-    MSE_QPD < MSE_baseline を解くと:
-        M* = (γ² - 1) σ² / (b_base² - b_cut²)
+    Solving MSE_QPD < MSE_baseline:
+        M* = (gamma^2 - 1) sigma^2 / (b_base^2 - b_cut^2)
 
-    ここで b = H₀ × (1 − exp(−p × N)) はノイズによる系統誤差。
+    where b = H0 * (1 - exp(-p * N)) is the systematic error from noise.
 
     Args:
-        ecr_before: カット前の ECR ゲート数 (= N)
-        ecr_after:  カット後の ECR ゲート数 (= N − ΔN)
-        H0:         理想期待値の絶対値 |⟨H⟩_ideal|
-        p_gate:     ECR ゲートあたりのエラー率
-        sigma_shot: 1 ショットあたりの統計的標準偏差
-        gamma2:     QPD のショットオーバーヘッド係数 γ²
+        ecr_before: ECR gate count before cutting (= N).
+        ecr_after:  ECR gate count after cutting (= N - delta_N).
+        H0:         Absolute value of the ideal expectation |<H>_ideal|.
+        p_gate:     Error rate per ECR gate.
+        sigma_shot: Statistical standard deviation per shot.
+        gamma2:     QPD shot overhead coefficient gamma^2.
 
     Returns:
-        M*: ブレークイーブン shot 数。カット不利な場合は math.inf。
+        M*: Breakeven shot count. Returns math.inf if cutting is unfavourable.
     """
     import math
     dN = ecr_before - ecr_after
@@ -631,7 +634,7 @@ def compute_m_star(
 # ──────────────────────────────────────────────
 
 _QPD_COEFFS_CZ: List[float] = [+0.5, +0.5, -0.5, +0.5, -0.5, +0.5]
-"""CZ/CX ゲートの QPD 係数 (6 ブランチ). γ = Σ|c_k| = 3, γ² = 9."""
+"""QPD coefficients for CZ/CX gate (6 branches). gamma = sum|c_k| = 3, gamma^2 = 9."""
 
 
 def _generate_qpd_branch(
@@ -640,16 +643,17 @@ def _generate_qpd_branch(
     k: int,
 ) -> Tuple[QuantumCircuit, int]:
     """
-    QPD ブランチ回路を生成する。
+    Generate a QPD branch circuit.
 
     Args:
-        qc: 元の量子回路（測定なし）
-        gate_idx: カットする 2-qubit ゲートのインデックス
-        k: ブランチ番号 (1–6)
+        qc: Original quantum circuit (without measurements).
+        gate_idx: Index of the 2-qubit gate to cut.
+        k: Branch number (1-6).
 
     Returns:
         (branch_circuit, n_mid_bits):
-            ブランチ回路（中間測定レジスタ付き）と中間測定ビット数
+            Branch circuit (with mid-circuit measurement registers)
+            and the number of mid-circuit measurement bits.
     """
     if not 1 <= k <= 6:
         raise ValueError(f"k must be 1–6, got {k}")
@@ -664,7 +668,7 @@ def _generate_qpd_branch(
 
     qc_b = copy.deepcopy(qc)
     qubit_1, qubit_2 = inst.qubits
-    tag = gate_idx  # mid-circuit register 名のユニーク化に使用
+    tag = gate_idx  # used to uniquify mid-circuit register names
 
     rz_neg = lambda q: CircuitInstruction(RZGate(-np.pi / 2), (q,), ())
     rz_pos = lambda q: CircuitInstruction(RZGate(+np.pi / 2), (q,), ())
@@ -679,7 +683,7 @@ def _generate_qpd_branch(
         n_mid += 1
         return CircuitInstruction(Measure(), (qubit,), (creg[0],))
 
-    # CZ の QPD 分解（6 ブランチ）
+    # CZ QPD decomposition (6 branches)
     if k == 1:
         cz_repl = [rz_neg(qubit_1), rz_neg(qubit_2)]
     elif k == 2:
@@ -713,7 +717,7 @@ def _generate_qpd_branch(
             rz_neg(qubit_1), rz_neg(qubit_2),
         ]
 
-    # CX = H · CZ · H（target 側に H を挟む）
+    # CX = H . CZ . H (sandwich H on the target side)
     if is_cx:
         h_tgt = CircuitInstruction(HGate(), (qubit_2,), ())
         repl = [h_tgt] + cz_repl + [h_tgt]
@@ -724,8 +728,36 @@ def _generate_qpd_branch(
     return qc_b, n_mid
 
 
+def _run_circuit(backend, tqc: QuantumCircuit, shots: int) -> Dict[str, int]:
+    """Execute a transpiled circuit and return counts.
+
+    Uses SamplerV2 for IBM real backends (where backend.run() is removed),
+    and falls back to backend.run() for AerSimulator / FakeBackend.
+    """
+    try:
+        from qiskit_ibm_runtime import IBMBackend
+        if isinstance(backend, IBMBackend):
+            from qiskit_ibm_runtime import SamplerV2
+            sampler = SamplerV2(mode=backend)
+            job = sampler.run([(tqc,)], shots=shots)
+            result = job.result()
+            pub_result = result[0]
+            # Extract counts from the first available classical register
+            for attr_name in dir(pub_result.data):
+                if not attr_name.startswith('_'):
+                    creg = getattr(pub_result.data, attr_name, None)
+                    if hasattr(creg, 'get_counts'):
+                        return dict(creg.get_counts())
+            return {}
+    except ImportError:
+        pass
+
+    job = backend.run(tqc, shots=shots)
+    return dict(job.result().get_counts())
+
+
 def _add_final_measurements(qc: QuantumCircuit) -> QuantumCircuit:
-    """全量子ビットに final measurement ('meas' レジスタ) を追加する。"""
+    """Add final measurements ('meas' register) to all qubits."""
     creg = ClassicalRegister(qc.num_qubits, name="meas")
     qc_m = qc.copy()
     qc_m.add_register(creg)
@@ -740,20 +772,20 @@ def reconstruct_distribution(
     n_mid_bits_per_branch: List[int],
 ) -> Dict[str, float]:
     """
-    QPD ブランチの測定結果から元回路の確率分布を再構成する。
+    Reconstruct the original circuit's probability distribution from QPD branch results.
 
-    Qiskit のカウント文字列は複数レジスタの場合スペース区切りで
-    最後に追加されたレジスタが左側に来る。
-    "meas_bits mid_bits" の形式を前提に分離する。
+    Qiskit count strings use space-separated registers with the
+    last-added register on the left.
+    Assumes the format "meas_bits mid_bits".
 
     Args:
-        branch_results: 各ブランチのカウント辞書リスト
-        coeffs: QPD 係数リスト (len=6)
-        n_qubits: final measurement のビット数
-        n_mid_bits_per_branch: 各ブランチの中間測定ビット数
+        branch_results: List of count dicts for each branch.
+        coeffs: QPD coefficient list (len=6).
+        n_qubits: Number of bits in the final measurement.
+        n_mid_bits_per_branch: Number of mid-circuit measurement bits per branch.
 
     Returns:
-        再構成された確率分布 {bitstring: probability}
+        Reconstructed probability distribution {bitstring: probability}.
     """
     dist: Dict[str, float] = defaultdict(float)
 
@@ -790,23 +822,24 @@ def execute_qpd(
     optimization_level: int = 1,
 ) -> Dict[str, float]:
     """
-    QPD ゲートカットを実行し、元回路の確率分布を再構成する。
+    Execute a QPD gate cut and reconstruct the original circuit's distribution.
 
     Args:
-        qc: 元の量子回路（パラメータバインド済み、測定なし）
-        gate_idx: カットする 2-qubit ゲートのインデックス
-        backend: Qiskit backend（AerSimulator 等）
-        shots_total: 全ブランチ合計のショット数
+        qc: Original quantum circuit (parameter-bound, no measurements).
+        gate_idx: Index of the 2-qubit gate to cut.
+        backend: Qiskit backend (AerSimulator, etc.).
+        shots_total: Total shots across all branches.
 
     Returns:
-        再構成された確率分布 {bitstring: probability}
-        推定誤差により負値が生じうるが、理論上は合計 ≈ 1 に収束する。
+        Reconstructed probability distribution {bitstring: probability}.
+        May contain negative values due to estimation error, but the
+        sum converges to approx. 1 in theory.
     """
     coeffs = _QPD_COEFFS_CZ
     abs_c = [abs(c) for c in coeffs]
     sum_abs = sum(abs_c)
 
-    # |c_k| に比例してショット数を配分
+    # Distribute shots proportional to |c_k|
     shots_per = [max(1, round(shots_total * a / sum_abs)) for a in abs_c]
 
     branch_results: List[Dict[str, int]] = []
@@ -822,8 +855,7 @@ def execute_qpd(
             seed_transpiler=seed_transpiler,
             optimization_level=optimization_level,
         )
-        job = backend.run(tqc, shots=shots_per[k - 1])
-        counts = job.result().get_counts()
+        counts = _run_circuit(backend, tqc, shots_per[k - 1])
 
         branch_results.append(counts)
         n_mid_list.append(n_mid)
@@ -841,15 +873,15 @@ def run_and_get_distribution(
     optimization_level: int = 1,
 ) -> Dict[str, float]:
     """
-    カットなしで回路を実行し、確率分布を返す（ベースライン用）。
+    Execute a circuit without cutting and return the probability distribution (baseline).
 
     Args:
-        qc: 量子回路（測定なし）
-        backend: Qiskit backend
-        shots: ショット数
+        qc: Quantum circuit (without measurements).
+        backend: Qiskit backend.
+        shots: Number of shots.
 
     Returns:
-        確率分布 {bitstring: probability}
+        Probability distribution {bitstring: probability}.
     """
     qc_m = _add_final_measurements(qc)
     tqc = transpile(
@@ -858,8 +890,7 @@ def run_and_get_distribution(
         seed_transpiler=seed_transpiler,
         optimization_level=optimization_level,
     )
-    job = backend.run(tqc, shots=shots)
-    counts = job.result().get_counts()
+    counts = _run_circuit(backend, tqc, shots)
     total = sum(counts.values())
     return {k: v / total for k, v in counts.items()}
 
@@ -870,10 +901,10 @@ def run_and_get_distribution(
 
 def load_circuit_from_qasm(qasm_path: str) -> QuantumCircuit:
     """
-    QASM ファイルから QuantumCircuit を読み込む。
+    Load a QuantumCircuit from a QASM file.
 
-    拡張子が .qasm3 の場合は qiskit.qasm3.load を試み、
-    失敗した場合または .qasm の場合は QuantumCircuit.from_qasm_file にフォールバック。
+    If the extension is .qasm3, tries qiskit.qasm3.load first.
+    Falls back to QuantumCircuit.from_qasm_file on failure or for .qasm files.
     """
     path = str(qasm_path)
     if not os.path.exists(path):
@@ -898,7 +929,7 @@ def load_circuit_from_qasm(qasm_path: str) -> QuantumCircuit:
 
 def _instantiate_fake_backend(class_name: str):
     """
-    文字列名から qiskit_ibm_runtime.fake_provider の FakeBackend を生成する。
+    Instantiate a FakeBackend from qiskit_ibm_runtime.fake_provider by class name.
     """
     try:
         import qiskit_ibm_runtime.fake_provider as _fp
@@ -916,19 +947,19 @@ def _build_backend_from_device_info(
     use_simulator: bool,
 ):
     """
-    device_info の dict から Qiskit backend を生成する。
+    Build a Qiskit backend from a device_info dict.
 
-    優先順位:
-      1. ``backend`` キー（実機 IBMBackend など任意の Qiskit backend オブジェクト）
-      2. ``fake_backend`` キー（文字列クラス名、例: ``"FakeSherbrooke"``）
-      3. ``coupling_map`` キー（フォールバック、ECR が basis に含まれない場合あり）
+    Priority:
+      1. ``backend`` key (real IBMBackend or any Qiskit backend object)
+      2. ``fake_backend`` key (class name string, e.g. ``"FakeSherbrooke"``)
+      3. ``coupling_map`` key (fallback; ECR may not be in the basis)
 
-    use_simulator=True  の場合は AerSimulator.from_backend() でノイズモデルごと
-                        シミュレータ化する（ECR などネイティブゲートが正しく設定される）。
-    use_simulator=False の場合は渡されたバックエンドをそのまま返す
-                        （トランスパイル専用。実際の量子実行は行わない）。
+    If use_simulator=True, wraps with AerSimulator.from_backend() to
+    include the noise model (native gates like ECR are set correctly).
+    If use_simulator=False, returns the backend as-is
+    (for transpilation only; no actual quantum execution).
     """
-    # ── 1. 実機バックエンドオブジェクトが直接渡された場合 ──────────
+    # -- 1. Real backend object provided directly --
     if "backend" in device:
         real_backend = device["backend"]
         if use_simulator:
@@ -937,7 +968,7 @@ def _build_backend_from_device_info(
         else:
             return real_backend
 
-    # ── 2. FakeBackend クラス名が指定された場合 ────────────────────
+    # -- 2. FakeBackend class name specified --
     if "fake_backend" in device:
         fake = _instantiate_fake_backend(device["fake_backend"])
         if use_simulator:
@@ -946,12 +977,12 @@ def _build_backend_from_device_info(
         else:
             return fake
 
-    # ── 3. coupling_map 直指定（フォールバック）──────────────────────
+    # -- 3. coupling_map specified directly (fallback) --
     from qiskit.transpiler import CouplingMap
     n_qubit = device["n_qubit"]
     coupling_map = CouplingMap(device["coupling_map"])
-    # coupling_map のみ指定時、AerSimulator のデフォルト basis_gates に ccx 等の
-    # 3量子ビット以上のゲートが含まれ、transpile でエラーになるため明示する。
+    # When only coupling_map is specified, AerSimulator's default basis_gates
+    # include 3+ qubit gates (e.g. ccx) that cause transpile errors, so we set them explicitly.
     _basis_gates = ["ecr", "id", "rz", "sx", "x", "reset", "measure"]
     if use_simulator:
         from qiskit_aer import AerSimulator
@@ -969,7 +1000,7 @@ def _build_backend_from_device_info(
 
 
 def _get_device_n_qubit(device: Dict[str, Any]) -> int:
-    """device dict から量子ビット数を取得する。"""
+    """Get the number of qubits from a device dict."""
     if "n_qubit" in device:
         return device["n_qubit"]
     if "backend" in device:
@@ -984,8 +1015,9 @@ def _select_device(
     n_qubits_required: int,
 ) -> Dict[str, Any]:
     """
-    device_info（dict 単体またはリスト）から、回路に必要な量子ビット数を
-    満たすデバイスを選択して返す。複数候補がある場合は n_qubit 最小のものを選ぶ。
+    Select a device from device_info (single dict or list) that has
+    enough qubits for the circuit. If multiple candidates exist, choose
+    the one with the fewest qubits.
     """
     devices = device_info if isinstance(device_info, list) else [device_info]
     candidates = [d for d in devices if _get_device_n_qubit(d) >= n_qubits_required]
@@ -1015,42 +1047,42 @@ def find_optimal_cuts_from_subqc_lst(
     seed_transpiler: int = 42,
     optimization_level: int = 1,
     beam_width: int = 8,
-    # ブレークイーブン判定パラメータ
+    # Breakeven analysis parameters
     H0: float = 1.0,
     p_gate: float = 0.005,
     sigma_shot: float = 1.0,
     gamma2: float = 9.0,
 ) -> List[SubCircuitCutResult]:
     """
-    subcircuit_params と device_info を入力として各サブ回路のカット位置を提案し、
-    理論的 MSE 基準によるカット可否判定を付与して返す。
+    Propose cut positions for each subcircuit given subcircuit_params and
+    device_info, and attach MSE-based breakeven decisions.
 
     Args:
-        subcircuit_params: 以下のキーを持つ dict のリスト
-            - ``name`` (str) : 回路の識別名
-            - ``qasm`` (str) : QASM ファイルパス (.qasm / .qasm3)
-        device_info: デバイス情報の dict またはそのリスト。各 dict は以下のキーを持つ
-            - ``name``         (str)           : デバイス名
-            - ``gate_speed``   (float)         : ゲート速度（選択基準には未使用）
-            - バックエンド指定（以下のいずれか、優先順位順）:
-              - ``backend``      (IBMBackend等) : 実機バックエンドオブジェクト
-              - ``fake_backend`` (str)          : FakeBackend クラス名
-                                                 例: ``"FakeSherbrooke"``
+        subcircuit_params: List of dicts with the following keys:
+            - ``name`` (str): circuit identifier
+            - ``qasm`` (str): QASM file path (.qasm / .qasm3)
+        device_info: Device info dict or list of dicts. Each dict has:
+            - ``name`` (str): device name
+            - ``gate_speed`` (float): gate speed (not used for selection)
+            - Backend specification (one of, in priority order):
+              - ``backend`` (IBMBackend etc.): real backend object
+              - ``fake_backend`` (str): FakeBackend class name
+                                        e.g. ``"FakeSherbrooke"``
               - ``coupling_map`` (List[list]) +
-                ``n_qubit``      (int)          : 結合マップ直指定（フォールバック）
-        shots: 実行ショット数（ブレークイーブン判定に使用）
-        use_simulator: True なら AerSimulator、False なら GenericBackendV2 を使用
-        max_cuts: カット数 (1 or 2)
-        H0: 理想期待値の絶対値 |⟨H⟩_ideal|（ブレークイーブン計算用）
-        p_gate: ECR ゲートあたりのエラー率
-        sigma_shot: 1 ショットあたりの統計的標準偏差
-        gamma2: QPD のショットオーバーヘッド係数 γ²
-        その他のキーワード引数は find_optimal_cuts と同じ。
+                ``n_qubit`` (int): direct coupling map (fallback)
+        shots: Number of shots (used for breakeven analysis).
+        use_simulator: If True use AerSimulator, else GenericBackendV2.
+        max_cuts: Number of cuts (1 or 2).
+        H0: Absolute ideal expectation |<H>_ideal| (for breakeven).
+        p_gate: Error rate per ECR gate.
+        sigma_shot: Statistical standard deviation per shot.
+        gamma2: QPD shot overhead coefficient gamma^2.
+        Other keyword arguments are the same as find_optimal_cuts.
 
     Returns:
-        List[SubCircuitCutResult]: 各サブ回路のカット結果リスト（入力順）。
-        各要素の cut_result.should_cut は shots >= M* のとき True。
-        cut_result.m_star にブレークイーブン shot 数が格納される。
+        List[SubCircuitCutResult]: Cut results for each subcircuit (in input order).
+        cut_result.should_cut is True when shots >= M*.
+        cut_result.m_star holds the breakeven shot count.
     """
     import math
 
@@ -1062,7 +1094,7 @@ def find_optimal_cuts_from_subqc_lst(
 
         qc = load_circuit_from_qasm(qasm_path)
 
-        # 回路の量子ビット数に適したデバイスを選択してバックエンドを構築
+        # Select a device with enough qubits and build the backend
         device = _select_device(device_info, qc.num_qubits)
         backend = _build_backend_from_device_info(device, use_simulator)
 
@@ -1078,7 +1110,7 @@ def find_optimal_cuts_from_subqc_lst(
             beam_width=beam_width,
         )
 
-        # ブレークイーブン判定
+        # Breakeven analysis
         m_star = compute_m_star(
             cut_result.ecr_before,
             cut_result.ecr_after,
@@ -1106,8 +1138,8 @@ def find_optimal_cuts_from_subqc_lst(
 
 def _device_obj_to_device_info(device_obj) -> Dict[str, Any]:
     """
-    annealing_transpiler.device.Device オブジェクトを
-    内部の device_info dict 形式に変換する。
+    Convert an annealing_transpiler.device.Device object
+    to the internal device_info dict format.
     """
     return {
         "name": device_obj.name,
@@ -1135,30 +1167,30 @@ def find_optimal_cuts_from_myqc_lst(
     gamma2: float = 9.0,
 ) -> List[SubCircuitCutResult]:
     """
-    List[MyQuantumCircuit] と Device を入力として各サブ回路のカット解析を行う。
+    Perform cut analysis for each subcircuit given List[MyQuantumCircuit] and Device.
 
-    MyQuantumCircuit を patched_qasm3_for_qiskit() 経由で Qiskit QuantumCircuit に
-    変換してから find_optimal_cuts を実行する。
+    Converts each MyQuantumCircuit to a Qiskit QuantumCircuit via
+    patched_qasm3_for_qiskit() before running find_optimal_cuts.
 
     Args:
-        myqc_lst: MyQuantumCircuit のリスト（機能2 の split_all_circuit 出力）。
-        device: annealing_transpiler.device.Device オブジェクト、
-            またはそのリスト。Device.name / Device.qubits / Device.connectivity を使用。
-        shots: 実行ショット数（ブレークイーブン判定に使用）
-        use_simulator: True なら AerSimulator、False なら GenericBackendV2 を使用
-        max_cuts: カット数 (1 or 2)
-        H0: 理想期待値の絶対値 |⟨H⟩_ideal|（ブレークイーブン計算用）
-        p_gate: ECR ゲートあたりのエラー率
-        sigma_shot: 1 ショットあたりの統計的標準偏差
-        gamma2: QPD のショットオーバーヘッド係数 γ²
-        その他のキーワード引数は find_optimal_cuts と同じ。
+        myqc_lst: List of MyQuantumCircuit (output of split_all_circuit).
+        device: annealing_transpiler.device.Device object or list thereof.
+            Uses Device.name / Device.qubits / Device.connectivity.
+        shots: Number of shots (used for breakeven analysis).
+        use_simulator: If True use AerSimulator, else GenericBackendV2.
+        max_cuts: Number of cuts (1 or 2).
+        H0: Absolute ideal expectation |<H>_ideal| (for breakeven).
+        p_gate: Error rate per ECR gate.
+        sigma_shot: Statistical standard deviation per shot.
+        gamma2: QPD shot overhead coefficient gamma^2.
+        Other keyword arguments are the same as find_optimal_cuts.
 
     Returns:
-        List[SubCircuitCutResult]: 各サブ回路のカット結果リスト（入力順）。
+        List[SubCircuitCutResult]: Cut results for each subcircuit (in input order).
     """
     import math
 
-    # Device オブジェクト → device_info dict に変換
+    # Convert Device objects to device_info dicts
     if isinstance(device, list):
         device_info = [_device_obj_to_device_info(d) for d in device]
     else:
@@ -1169,11 +1201,11 @@ def find_optimal_cuts_from_myqc_lst(
     for i, myqc in enumerate(myqc_lst):
         name = myqc.subqc_id if myqc.subqc_id else f"subcircuit_{i}"
 
-        # MyQuantumCircuit -> QASM3 文字列 -> Qiskit QuantumCircuit
+        # MyQuantumCircuit -> QASM3 string -> Qiskit QuantumCircuit
         qasm3_str = myqc.patched_qasm3_for_qiskit()
         qc = load_circuit_from_qasm3_str(qasm3_str)
 
-        # デバイス選択 → バックエンド構築
+        # Select device -> build backend
         dev = _select_device(device_info, qc.num_qubits)
         backend = _build_backend_from_device_info(dev, use_simulator)
 
@@ -1189,7 +1221,7 @@ def find_optimal_cuts_from_myqc_lst(
             beam_width=beam_width,
         )
 
-        # ブレークイーブン判定
+        # Breakeven analysis
         m_star = compute_m_star(
             cut_result.ecr_before,
             cut_result.ecr_after,
@@ -1216,34 +1248,34 @@ def expand_cut_results(
     expand_names: Optional[List[str]] = None,
 ) -> List[DataClassSubQCParams]:
     """
-    カット解析結果から DataClassSubQCParams のリストを生成する。
+    Generate a list of DataClassSubQCParams from cut analysis results.
 
-    - 展開対象のサブ回路 → QPD 6ブランチに展開（6つの DataClassSubQCParams）
-    - それ以外のサブ回路 → そのまま1つの DataClassSubQCParams
+    - Subcircuits selected for expansion -> expanded into 6 QPD branches
+    - Other subcircuits -> kept as a single DataClassSubQCParams
 
     Args:
-        cut_results: find_optimal_cuts_from_myqc_lst の返り値。
-        expand_names: QPD 展開するサブ回路名のリスト。
-            None の場合は should_cut=True かつ gate_indices がある全サブ回路を展開。
-            空リスト [] の場合はどのサブ回路も展開しない。
+        cut_results: Return value of find_optimal_cuts_from_myqc_lst.
+        expand_names: List of subcircuit names to QPD-expand.
+            None expands all subcircuits where should_cut=True and gate_indices exist.
+            An empty list [] expands nothing.
 
     Returns:
-        List[DataClassSubQCParams]: 展開後の全回路リスト。
-            annealing_transpile にそのまま渡せる形式。
+        List[DataClassSubQCParams]: All circuits after expansion.
+            Can be passed directly to annealing_transpile.
     """
     from qiskit import qasm3 as _qasm3
 
     output: List[DataClassSubQCParams] = []
 
     for r in cut_results:
-        # 展開するかどうかの判定
+        # Determine whether to expand
         if expand_names is None:
             do_expand = r.cut_result.should_cut and bool(r.cut_result.gate_indices)
         else:
             do_expand = r.name in expand_names and bool(r.cut_result.gate_indices)
 
         if do_expand:
-            # QPD 6ブランチに展開
+            # Expand into 6 QPD branches
             gate_idx = r.cut_result.gate_indices[0]
             for k in range(1, 7):
                 branch_qc, _ = _generate_qpd_branch(r.qc, gate_idx, k)
@@ -1254,7 +1286,7 @@ def expand_cut_results(
                     qasm3=_qasm3.dumps(branch_qc),
                 ))
         else:
-            # カットなし → そのまま
+            # No cut -> keep as-is
             output.append(DataClassSubQCParams(
                 subqc_id=r.name,
                 parent_circuit_id=r.name,
@@ -1270,10 +1302,10 @@ def dist_to_counts(
     shots: int,
 ) -> Dict[str, int]:
     """
-    確率分布 {bitstring: probability} → カウント {bitstring: int} に変換する。
+    Convert a probability distribution {bitstring: probability} to counts {bitstring: int}.
 
-    QPD 再構成で生じる負の確率は 0 にクリップし、
-    正規化後に shots 数に比例したカウントに丸める。
+    Negative probabilities from QPD reconstruction are clipped to 0,
+    then normalised and rounded to integer counts proportional to shots.
     """
     clipped = {k: max(0.0, v) for k, v in dist.items()}
     total = sum(clipped.values())
@@ -1284,14 +1316,14 @@ def dist_to_counts(
 
 
 def load_circuit_from_qasm3_str(qasm3_str: str) -> QuantumCircuit:
-    """OpenQASM3 文字列から QuantumCircuit を生成する。"""
+    """Generate a QuantumCircuit from an OpenQASM3 string."""
     from qiskit import qasm3
     return qasm3.loads(qasm3_str)
 
 
 # ──────────────────────────────────────────────
 # analyze_cuts / run_with_decisions
-# execute.py (quantum-circuit-cutting) から呼ばれる
+# Called from execute.py (quantum-circuit-cutting)
 # ──────────────────────────────────────────────
 
 def analyze_cuts(
@@ -1301,24 +1333,24 @@ def analyze_cuts(
     **options,
 ):
     """
-    各サブ回路に対してカット解析・ブレークイーブン判定を行う。
-    実行は行わず CutDecision のリストを返す。
+    Perform cut analysis and breakeven judgement for each subcircuit.
+    Returns a list of CutDecision without executing.
 
-    execute_subcircuits() の前半（カット判定まで）を切り出した関数。
+    Extracted from the first half of execute_subcircuits() (up to cut decision).
 
     Args:
         subcircuits: List[DataClassSubQCParams]
-        device_info: デバイス情報の dict またはリスト
-        use_simulator: True なら AerSimulator を使用
+        device_info: Device info dict or list of dicts.
+        use_simulator: If True, use AerSimulator.
         **options:
-            shots (int): ブレークイーブン判定に使用するショット数 (default 8192)
-            H0 (float): 理想期待値 (default 1.0)
-            p_gate (float): ECR ゲートあたりのエラー率 (default 0.005)
-            sigma_shot (float): 統計的標準偏差 (default 1.0)
-            gamma2 (float): QPD オーバーヘッド係数 (default 9.0)
-            max_cuts (int): カット数 (default 1)
-            seed_transpiler (int): transpile seed (default 42)
-            optimization_level (int): transpile 最適化レベル (default 1)
+            shots (int): Shots for breakeven analysis (default 8192).
+            H0 (float): Ideal expectation value (default 1.0).
+            p_gate (float): Error rate per ECR gate (default 0.005).
+            sigma_shot (float): Statistical std dev (default 1.0).
+            gamma2 (float): QPD overhead coefficient (default 9.0).
+            max_cuts (int): Number of cuts (default 1).
+            seed_transpiler (int): Transpile seed (default 42).
+            optimization_level (int): Transpile optimisation level (default 1).
 
     Returns:
         List[CutDecision]
@@ -1379,18 +1411,18 @@ def run_with_decisions(
     shots: int,
 ):
     """
-    各サブ回路を CutDecision に従って実行し DataClassSubQCRes を返す。
+    Execute each subcircuit according to CutDecision and return DataClassSubQCRes.
 
-    execute_subcircuits() の後半（実行部分）を切り出した関数。
+    Extracted from the second half of execute_subcircuits() (execution part).
 
-    Step 2 (Annealing) を通った場合、params.qasm3 は transpile 済みに
-    更新されている。load_circuit_from_qasm3_str(params.qasm3) で
-    更新後の回路を復元して実行する。
+    If Step 2 (Annealing) was applied, params.qasm3 has been updated
+    with the transpiled circuit. load_circuit_from_qasm3_str(params.qasm3)
+    restores the updated circuit for execution.
 
     Args:
         subcircuits: List[DataClassSubQCParams]
-        cut_decisions: List[CutDecision] (analyze_cuts の出力)
-        shots: 実行ショット数
+        cut_decisions: List[CutDecision] (output of analyze_cuts).
+        shots: Number of execution shots.
 
     Returns:
         List[DataClassSubQCRes]
@@ -1415,8 +1447,8 @@ def run_with_decisions(
 
         counts = dist_to_counts(dist, shots)
 
-        # circuit_cutter の DataClassSubQCRes が利用可能ならそちらを使う
-        # (job_id 等の必須フィールドが追加されているため)
+        # Use circuit_cutter's DataClassSubQCRes if available
+        # (it has mandatory fields like job_id)
         try:
             from circuit_cutter import DataClassSubQCRes as _FullRes
             results.append(_FullRes(
@@ -1452,35 +1484,35 @@ def execute_subcircuits(
     optimization_level: int = 1,
 ) -> List[DataClassSubQCRes]:
     """
-    DataClassSubQCParams のリストを受け取り、各サブ回路に対して
-    カット解析 → QPD/ベースライン実行 → DataClassSubQCRes を返す。
+    Accept a list of DataClassSubQCParams, perform cut analysis,
+    QPD/baseline execution, and return DataClassSubQCRes.
 
-    カット判定は理論的 MSE ブレークイーブン (should_cut) に基づく。
-    should_cut=True の回路は QPD カットを実行し、
-    should_cut=False の回路はそのまま実行する。
+    Cut decisions are based on the theoretical MSE breakeven (should_cut).
+    Circuits with should_cut=True are executed with QPD cutting;
+    those with should_cut=False are executed directly.
 
     Args:
-        subqc_params_lst: DataClassSubQCParams のリスト
-        device_info: デバイス情報の dict またはリスト
-        shots: 実行ショット数
-        use_simulator: True なら AerSimulator を使用
-        H0: ブレークイーブン計算用の |⟨H⟩_ideal|
-        その他: find_optimal_cuts と同じ
+        subqc_params_lst: List of DataClassSubQCParams.
+        device_info: Device info dict or list of dicts.
+        shots: Number of execution shots.
+        use_simulator: If True, use AerSimulator.
+        H0: |<H>_ideal| for breakeven calculation.
+        Other args: same as find_optimal_cuts.
 
     Returns:
-        List[DataClassSubQCRes]: 各サブ回路の測定結果
+        List[DataClassSubQCRes]: Measurement results for each subcircuit.
     """
     results: List[DataClassSubQCRes] = []
 
     for params in subqc_params_lst:
-        # QASM3 文字列 → QuantumCircuit
+        # QASM3 string -> QuantumCircuit
         qc = load_circuit_from_qasm3_str(params.qasm3)
 
-        # デバイス選択 → バックエンド構築
+        # Select device -> build backend
         device = _select_device(device_info, qc.num_qubits)
         backend = _build_backend_from_device_info(device, use_simulator)
 
-        # カット解析
+        # Cut analysis
         cut_result = find_optimal_cuts(
             qc, backend,
             max_cuts=max_cuts,
@@ -1488,7 +1520,7 @@ def execute_subcircuits(
             optimization_level=optimization_level,
         )
 
-        # ブレークイーブン判定
+        # Breakeven analysis
         m_star = compute_m_star(
             cut_result.ecr_before, cut_result.ecr_after,
             H0=H0, p_gate=p_gate, sigma_shot=sigma_shot, gamma2=gamma2,
@@ -1496,7 +1528,7 @@ def execute_subcircuits(
         cut_result.m_star = m_star
         cut_result.should_cut = math.isfinite(m_star) and (shots >= m_star)
 
-        # 実行
+        # Execution
         if cut_result.should_cut and cut_result.ecr_reduction > 0:
             gate_idx = cut_result.gate_indices[0]
             dist = execute_qpd(
